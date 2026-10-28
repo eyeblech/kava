@@ -88,23 +88,49 @@ impl TerminalRenderer {
 
                 match self.style {
                     RenderStyle::SubpixelHalfBlock => {
-                        if prev_fg != Some(top_rgb) {
-                            let _ = write!(
-                                self.frame_str,
-                                "\x1b[38;2;{};{};{}m",
-                                top_rgb[0], top_rgb[1], top_rgb[2]
-                            );
-                            prev_fg = Some(top_rgb);
+                        let is_dark = top_rgb[0] <= 2
+                            && top_rgb[1] <= 2
+                            && top_rgb[2] <= 3
+                            && bot_rgb[0] <= 2
+                            && bot_rgb[1] <= 2
+                            && bot_rgb[2] <= 3;
+
+                        if is_dark {
+                            if prev_bg != Some([0, 0, 0]) {
+                                self.frame_str.push_str("\x1b[0m");
+                                prev_bg = Some([0, 0, 0]);
+                                prev_fg = None;
+                            }
+                            self.frame_str.push(' ');
+                        } else if top_rgb == bot_rgb {
+                            if prev_bg != Some(top_rgb) {
+                                let _ = write!(
+                                    self.frame_str,
+                                    "\x1b[48;2;{};{};{}m",
+                                    top_rgb[0], top_rgb[1], top_rgb[2]
+                                );
+                                prev_bg = Some(top_rgb);
+                            }
+                            self.frame_str.push(' ');
+                        } else {
+                            if prev_fg != Some(top_rgb) {
+                                let _ = write!(
+                                    self.frame_str,
+                                    "\x1b[38;2;{};{};{}m",
+                                    top_rgb[0], top_rgb[1], top_rgb[2]
+                                );
+                                prev_fg = Some(top_rgb);
+                            }
+                            if prev_bg != Some(bot_rgb) {
+                                let _ = write!(
+                                    self.frame_str,
+                                    "\x1b[48;2;{};{};{}m",
+                                    bot_rgb[0], bot_rgb[1], bot_rgb[2]
+                                );
+                                prev_bg = Some(bot_rgb);
+                            }
+                            self.frame_str.push('▀');
                         }
-                        if prev_bg != Some(bot_rgb) {
-                            let _ = write!(
-                                self.frame_str,
-                                "\x1b[48;2;{};{};{}m",
-                                bot_rgb[0], bot_rgb[1], bot_rgb[2]
-                            );
-                            prev_bg = Some(bot_rgb);
-                        }
-                        self.frame_str.push('▀');
                     }
                     RenderStyle::BrailleVector => {
                         // Compute local luminance & gradient to synthesize crisp 8-dot Unicode Braille (U+2800..U+28FF)
@@ -233,8 +259,13 @@ impl TerminalRenderer {
         } else {
             "·"
         };
+        let state_label = if audio.active_signal {
+            "LIVE"
+        } else {
+            "IDLE (Play audio or press [S])"
+        };
         let status = format!(
-            " ❂ KAVA {} │ {} │ {} │ D{} │ {} │ {} {} │ Sens {:.1}x │ {:2.0} FPS │ [?] Help [Q] Quit ",
+            " ❂ KAVA {} │ {} │ {} │ D{} │ {} │ {} {} [{}] │ {:2.0} FPS │ [?] Help ",
             beat_dot,
             mode.name(),
             palette.name(),
@@ -242,9 +273,10 @@ impl TerminalRenderer {
             self.style.name(),
             sparkline,
             audio.source_name,
-            sensitivity,
+            state_label,
             fps
         );
+        let _ = sensitivity;
 
         self.frame_str.push_str("\x1b[48;2;12;14;26m\x1b[38;2;210;220;255m");
         let mut char_count = 0;

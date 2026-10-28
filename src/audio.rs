@@ -450,21 +450,24 @@ impl AudioEngine {
         let stream_advancing = current_count != self.last_sample_count;
         self.last_sample_count = current_count;
 
-        let active_signal = !self.synth_mode && stream_advancing && raw_rms > 0.00015;
+        let active_signal = !self.synth_mode && stream_advancing && raw_rms > 0.00035;
         if active_signal {
             self.silent_frames = 0;
         } else {
             self.silent_frames = self.silent_frames.saturating_add(1);
         }
 
-        if self.synth_mode || self.silent_frames > 24 {
+        // Strict CAVA behavior: ONLY synthesize audio if user explicitly pressed [S] or passed --synth.
+        // When no sound is playing, zero out the FFT input so the visualizer rests in calm silence!
+        if self.synth_mode {
             self.fill_harmonic_synth(time);
-            if self.synth_mode {
-                source_name = String::from("Cosmic Synth [S]");
-            } else {
-                source_name = format!("{} (Auto-Synth)", source_name);
-            }
+            source_name = String::from("Cosmic Synth [S]");
             raw_rms = 0.28;
+        } else if !active_signal {
+            for s in &mut self.raw_samples {
+                *s = 0.0;
+            }
+            raw_rms = 0.0;
         }
 
         for i in 0..FFT_SIZE {
@@ -589,13 +592,20 @@ impl AudioEngine {
             0.35
         };
 
-        self.phase_integral += clamped_dt * (0.45 + 1.65 * rms_energy + 0.85 * self.beat_impulse);
+        // Integrate continuous phase velocity ONLY when sound energy is present (rests peacefully on silence)
+        self.phase_integral += clamped_dt * (2.4 * rms_energy + 1.15 * self.beat_impulse);
 
         let mut waveform = [0.0f32; 256];
-        let wave_gain = (1.5 / raw_rms.max(0.08)).clamp(0.8, 6.0);
+        let wave_gain = if raw_rms > 0.00035 {
+            (1.5 / raw_rms.max(0.08)).clamp(0.8, 6.0)
+        } else {
+            0.0
+        };
         for (i, w) in waveform.iter_mut().enumerate() {
             *w = (self.raw_samples[i * 4] * wave_gain).clamp(-1.0, 1.0);
         }
+
+        let active_audio = self.synth_mode || active_signal || rms_energy > 0.008;
 
         AudioFrame {
             bands: out_bands,
@@ -612,7 +622,7 @@ impl AudioEngine {
             beat_impulse: self.beat_impulse,
             phase_integral: self.phase_integral,
             source_name,
-            active_signal,
+            active_signal: active_audio,
         }
     }
 }
