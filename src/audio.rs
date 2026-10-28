@@ -187,7 +187,9 @@ impl AudioEngine {
         if !force_synth {
             capture_child = Self::try_spawn_pulse_monitor(&ring, custom_device.as_deref())
                 .or_else(|| Self::try_spawn_pw_record(&ring))
-                .or_else(|| Self::try_spawn_arecord(&ring, custom_device.as_deref()));
+                .or_else(|| Self::try_spawn_arecord(&ring, custom_device.as_deref()))
+                .or_else(|| Self::try_spawn_macos_ffmpeg(&ring))
+                .or_else(|| Self::try_spawn_sox(&ring));
         } else if let Ok(mut rb) = ring.lock() {
             rb.source_name = String::from("Cosmic Harmonic Synth");
         }
@@ -334,6 +336,57 @@ impl AudioEngine {
             .spawn()
             .ok()?;
         Self::spawn_float32_reader(child, ring, format!("ALSA ({})", dev))
+    }
+
+    fn try_spawn_macos_ffmpeg(ring: &Arc<Mutex<RingBuffer>>) -> Option<Child> {
+        #[cfg(target_os = "macos")]
+        {
+            let child = Command::new("ffmpeg")
+                .args([
+                    "-f",
+                    "avfoundation",
+                    "-i",
+                    ":0",
+                    "-f",
+                    "f32le",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "48000",
+                    "-loglevel",
+                    "quiet",
+                    "pipe:1",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .ok()?;
+            return Self::spawn_float32_reader(child, ring, "CoreAudio (AVFoundation)".to_string());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = ring;
+            None
+        }
+    }
+
+    fn try_spawn_sox(ring: &Arc<Mutex<RingBuffer>>) -> Option<Child> {
+        let child = Command::new("rec")
+            .args([
+                "-q",
+                "-t",
+                "f32",
+                "-r",
+                "48000",
+                "-c",
+                "1",
+                "-",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        Self::spawn_float32_reader(child, ring, "SoX Audio".to_string())
     }
 
     pub fn toggle_synth(&mut self) {

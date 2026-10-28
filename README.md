@@ -49,11 +49,21 @@ Instead of naïve linear RGB interpolation (which creates muddy gray dead-zones)
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation (Linux, macOS, WSL)
 
-### From Source (Cargo)
-Ensure you have the Rust toolchain (`cargo`) and standard audio headers (`alsa-lib` / `libpulse` on Linux) installed:
+**KAVA** has **zero external Rust crate dependencies**—so it compiles in ~10 seconds on any machine without needing complex C library headers.
 
+### Option 1: One-Line Installer (Prebuilt Binary or Auto-Build)
+```bash
+curl -fsSL https://raw.githubusercontent.com/eyeblech/kava/main/install.sh | bash
+```
+
+### Option 2: Direct via Cargo (`cargo install`)
+```bash
+cargo install --git https://github.com/eyeblech/kava.git
+```
+
+### Option 3: Clone & Build from Source
 ```bash
 git clone https://github.com/eyeblech/kava.git
 cd kava

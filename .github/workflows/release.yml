@@ -1,0 +1,52 @@
+name: CI & Cross-Platform Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build & Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Release Binary (Zero Dependencies)
+        run: cargo build --release
+      - name: Smoke Test All 6 Physics Engines
+        run: |
+          for m in 1 2 3 4 5 6; do
+            ./target/release/kava --mode "$m" --palette dmt --preview-frames 5 > /dev/null
+          done
+
+  release:
+    name: Package Release (${{ matrix.target }})
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Release
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package Tarball
+        run: |
+          cp target/${{ matrix.target }}/release/kava .
+          tar -czf kava-${{ matrix.target }}.tar.gz kava README.md LICENSE config.example.toml
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: kava-${{ matrix.target }}.tar.gz
