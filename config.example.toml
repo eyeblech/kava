@@ -1,0 +1,37 @@
+# ❂ KAVA — Cosmic Audio Kaleidoscope Configuration
+# Place this file at ~/.config/kava/config.toml
+
+# Initial visual physics engine (1 to 6):
+#   1 = Sacred Dihedral Mandala (Harmonic interference & lotus geometry)
+#   2 = Hyperbolic Poincare Disk (Conformal Mobius transformation)
+#   3 = Chladni Cymatic Resonance (2D Helmholtz standing wave nodal plate)
+#   4 = Quantum Relativistic Vortex (Log-spiral tunnel & gravitational lensing)
+#   5 = Aizawa Strange Attractor (4th-order Runge-Kutta 3D chaotic flow)
+#   6 = Radial CAVA Mirror Scope (Radial frequency bars + gravity peaks + Lissajous ring)
+mode = 1
+
+# Perceptual Oklab color palette:
+#   "cosmic"  - Cosmic Nebula (Deep indigo, electric violet, magenta, solar gold)
+#   "bio"     - Bioluminescence (Abyssal navy, glowing teal, emerald, cyan)
+#   "solar"   - Solar Flare (Crimson shadow, molten amber, incandescent gold)
+#   "dmt"     - DMT Hyperspace (Full-spectrum iridescent psychedelic harmonics)
+#   "aurora"  - Aurora Borealis (Boreal night, emerald green, polar rose)
+#   "zen"     - Zen Lotus (Twilight plum, sakura rose, lotus peach, pearl)
+#   "cyber"   - Cyberpunk Acid (Laser magenta, electric cyan, hyper lime)
+#   "gold"    - Obsidian Gold (Velvet obsidian, bronze, liquid royal gold)
+palette = "cosmic"
+
+# Dihedral kaleidoscope mirror symmetry folds (D_2 to D_24)
+folds = 8
+
+# Target frame rate (15 to 144)
+fps = 60
+
+# Audio reactivity gain / sensitivity multiplier (0.2 to 5.0)
+sensitivity = 1.0
+
+# Enable 5-point optical neon bloom pass
+bloom = true
+
+# Temporal frame persistence / phosphor trail decay (0.0 to 0.94)
+trail_persistence = 0.76
