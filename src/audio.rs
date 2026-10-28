@@ -71,6 +71,7 @@ fn fft_in_place(buf: &mut [Complex]) {
 }
 
 /// Extracted real-time acoustic features smoothed via spring-damper & Monstercat gravity physics.
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct AudioFrame {
     pub bands: [f32; NUM_BANDS],
@@ -517,20 +518,20 @@ impl AudioEngine {
             target_bands[b] = (peak_mag * 0.65 + avg_mag * 0.35) * self.auto_gain * sensitivity;
         }
 
-        // MonsterCat spatial smoothing pass across neighboring bars
-        let mut smoothed_targets = target_bands;
+        // MonsterCat + Wide Gaussian spatial smoothing across neighboring bands
+        // Ensures the spectrum envelope is a silky, continuous curve without spiky single-bin teeth
+        let mut smoothed_targets = [0.0f32; NUM_BANDS];
         for b in 0..NUM_BANDS {
-            let mut acc = target_bands[b];
-            for d in 1..=3 {
-                let falloff = 0.58f32.powi(d as i32);
-                if b >= d {
-                    acc = acc.max(target_bands[b - d] * falloff);
-                }
-                if b + d < NUM_BANDS {
-                    acc = acc.max(target_bands[b + d] * falloff);
-                }
+            let mut weighted_sum = 0.0f32;
+            let mut weight_total = 0.0f32;
+            for d in -5isize..=5 {
+                let nb = (b as isize + d).clamp(0, NUM_BANDS as isize - 1) as usize;
+                let w = (-((d * d) as f32) / 6.5).exp();
+                weighted_sum += target_bands[nb] * w;
+                weight_total += w;
             }
-            smoothed_targets[b] = (1.0 + acc * 2.2).ln().clamp(0.0, 1.35);
+            let avg = weighted_sum / weight_total;
+            smoothed_targets[b] = (1.0 + avg * 2.1).ln().clamp(0.0, 1.35);
         }
 
         let frame_peak = smoothed_targets.iter().copied().fold(0.0f32, f32::max);

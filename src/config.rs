@@ -14,6 +14,7 @@ pub struct CliArgs {
     pub device: Option<String>,
     pub no_hud: bool,
     pub preview_frames: Option<u32>,
+    pub dump_ppm: Option<String>,
 }
 
 impl Default for CliArgs {
@@ -28,6 +29,7 @@ impl Default for CliArgs {
             device: None,
             no_hud: false,
             preview_frames: None,
+            dump_ppm: None,
         }
     }
 }
@@ -93,6 +95,12 @@ impl CliArgs {
                     i += 1;
                     if let Some(v) = args.get(i).and_then(|s| s.parse().ok()) {
                         cfg.preview_frames = Some(v);
+                    }
+                }
+                "--dump-ppm" => {
+                    i += 1;
+                    if let Some(v) = args.get(i) {
+                        cfg.dump_ppm = Some(v.clone());
                     }
                 }
                 _ => {}

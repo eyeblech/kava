@@ -272,33 +272,36 @@ impl PhysicsField {
 
                     let twisted_theta = raw_theta + 0.22 * phase * (1.0 - 0.35 * r).sin();
                     let folded_theta = Self::fold_dihedral(twisted_theta, folds);
-                    let norm_angle = (folded_theta / half_sector).clamp(0.0, 1.0);
+                    // Apply C^1 smooth cosine boundary easing at 0 and PI/N so mirror seams never have sharp corners!
+                    let raw_norm = (folded_theta / half_sector).clamp(0.0, 1.0);
+                    let norm_angle = (1.0 - (raw_norm * PI).cos()) * 0.5;
+                    let smooth_theta = norm_angle * half_sector;
 
                     let (intensity, color_phase, core_glow) = match mode {
                         VisualMode::SacredMandala => {
-                            self.eval_sacred_mandala(r, folded_theta, norm_angle, phase, audio)
+                            self.eval_sacred_mandala(r, smooth_theta, norm_angle, phase, audio)
                         }
                         VisualMode::PoincareDisk => {
-                            self.eval_poincare_disk(x, y, r, folded_theta, norm_angle, phase, audio)
+                            self.eval_poincare_disk(x, y, r, smooth_theta, norm_angle, phase, audio)
                         }
                         VisualMode::ChladniCymatics => {
-                            self.eval_chladni_cymatics(r, folded_theta, norm_angle, phase, audio)
+                            self.eval_chladni_cymatics(r, smooth_theta, norm_angle, phase, audio)
                         }
                         VisualMode::QuantumVortex => self.eval_quantum_vortex(
                             r,
                             raw_theta,
-                            folded_theta,
+                            smooth_theta,
                             norm_angle,
                             phase,
                             audio,
                         ),
                         VisualMode::AizawaAttractor => {
-                            self.eval_aizawa_field(r, folded_theta, norm_angle, d_val, phase, audio)
+                            self.eval_aizawa_field(r, smooth_theta, norm_angle, d_val, phase, audio)
                         }
                         VisualMode::RadialCavaScope => self.eval_radial_cava_scope(
                             r,
                             raw_theta,
-                            folded_theta,
+                            smooth_theta,
                             norm_angle,
                             phase,
                             audio,
@@ -340,7 +343,7 @@ impl PhysicsField {
     }
 
     /// Mode 1: Sacred Dihedral Mandala
-    /// Crisp, glowing anti-aliased SDF lotus ribbons + harmonic interference petals.
+    /// Volumetric, pillowy, anti-aliased lotus petals & concentric harmonic waves.
     #[inline]
     fn eval_sacred_mandala(
         &self,
@@ -350,35 +353,45 @@ impl PhysicsField {
         phase: f32,
         audio: &AudioFrame,
     ) -> (f32, f32, f32) {
-        let spec_ang = Self::sample_spectrum(&audio.bands, norm_angle);
-        let spec_rad = Self::sample_spectrum(&audio.bands, (r * 0.6).clamp(0.0, 1.0));
+        let spec_ang = Self::sample_spectrum(&audio.bands, norm_angle * 0.65);
+        let spec_rad = Self::sample_spectrum(&audio.bands, (r * 0.55).clamp(0.0, 1.0));
 
-        // 3 nested sacred geometry lotus ribbon layers driven by Sub-Bass, Mid, and Treble
-        let r1 = (0.18 + 0.52 * audio.bass)
-            + (0.12 + 0.25 * spec_ang) * (folded_theta * 2.0 + phase * 0.8).cos();
-        let r2 = (0.36 + 0.45 * audio.low_mid)
-            + (0.14 + 0.28 * spec_rad) * (folded_theta * 4.0 - phase * 0.6).cos();
-        let r3 = (0.58 + 0.38 * audio.high_mid)
-            + (0.10 + 0.22 * spec_ang) * (folded_theta * 6.0 + phase * 1.1).sin();
+        // Smooth harmonic lotus curves (using smooth cosine envelopes instead of spiky high-frequency bins)
+        let r1 = (0.20 + 0.38 * audio.bass)
+            + (0.14 + 0.18 * audio.low_mid) * (folded_theta * 2.0 + phase * 0.7).cos()
+            + 0.08 * spec_ang;
+        let r2 = (0.42 + 0.35 * audio.low_mid)
+            + (0.16 + 0.16 * audio.high_mid) * (folded_theta * 3.0 - phase * 0.5).cos()
+            + 0.08 * spec_rad;
+        let r3 = (0.64 + 0.30 * audio.high_mid)
+            + (0.12 + 0.15 * audio.treble) * (folded_theta * 4.0 + phase * 0.9).sin();
 
         let d1 = (r - r1).abs();
         let d2 = (r - r2).abs();
         let d3 = (r - r3).abs();
 
-        // Gaussian + inverse-square anti-aliased neon ribbons (crisp core, silky halo)
-        let w = 0.018 + 0.014 * audio.rms_energy;
-        let rib1 = (-d1 * d1 / (w * w * 1.6)).exp() * 1.15 + (0.008 / (d1 + 0.012)) * 0.35;
-        let rib2 = (-d2 * d2 / (w * w * 1.4)).exp() * 1.05 + (0.007 / (d2 + 0.012)) * 0.32;
-        let rib3 = (-d3 * d3 / (w * w * 1.2)).exp() * 0.90 + (0.006 / (d3 + 0.012)) * 0.28;
+        // Wide, silky Gaussian cushions so adjacent terminal cells blend with smooth gradients
+        let w1 = 0.075 + 0.035 * audio.bass;
+        let w2 = 0.085 + 0.035 * audio.low_mid;
+        let w3 = 0.095 + 0.035 * audio.high_mid;
 
-        // Radial symmetry filaments connecting the petals
-        let spoke_dist = (folded_theta.sin() * r).abs();
-        let spoke = (-spoke_dist * spoke_dist / 0.0012).exp() * spec_rad * 0.75;
+        let rib1 = (-d1 * d1 / (w1 * w1)).exp() * (0.75 + 0.45 * audio.bass);
+        let rib2 = (-d2 * d2 / (w2 * w2)).exp() * (0.68 + 0.42 * spec_ang);
+        let rib3 = (-d3 * d3 / (w3 * w3)).exp() * (0.58 + 0.38 * spec_rad);
 
-        let vignette = Self::smoothstep(1.38, 0.25, r);
-        let intensity = (rib1 + rib2 + rib3 + spoke) * vignette;
-        let core_glow = (-d1 * d1 / 0.00035).exp() + (-d2 * d2 / 0.00035).exp();
-        let color_phase = r * 0.42 + norm_angle * 0.35 - phase * 0.08 + 0.2 * spec_ang;
+        // Soft glowing core nebula & radial silk rays
+        let spoke_wave = (folded_theta * 2.0).cos() * 0.5 + 0.5;
+        let core_nebula = (-r * r / (0.18 + 0.16 * audio.sub_bass)).exp()
+            * (0.55 + 0.45 * spoke_wave)
+            * (0.6 + 0.6 * audio.bass);
+
+        let vignette = Self::smoothstep(1.18, 0.32, r);
+        let intensity = (rib1 + rib2 + rib3 + core_nebula) * vignette;
+        let core_glow = ((-d1 * d1 / 0.0035).exp() * 0.65
+            + (-d2 * d2 / 0.0040).exp() * 0.50
+            + (-r * r / 0.04).exp() * 0.55 * audio.beat_impulse)
+            * vignette;
+        let color_phase = r * 0.48 + norm_angle * 0.32 - phase * 0.09 + 0.15 * spec_ang;
 
         (intensity, color_phase, core_glow)
     }
@@ -395,42 +408,42 @@ impl PhysicsField {
         phase: f32,
         audio: &AudioFrame,
     ) -> (f32, f32, f32) {
-        if r > 1.22 {
+        if r > 1.15 {
             return (0.0, 0.0, 0.0);
         }
-        let r_disk = (r * 0.82).min(0.992);
-        let hyp_dist = ((1.0 + r_disk) / (1.0 - r_disk + 0.008)).ln();
+        let r_disk = (r * 0.85).min(0.985);
+        let hyp_dist = ((1.0 + r_disk) / (1.0 - r_disk + 0.015)).ln();
 
-        let a_mag = (0.22 + 0.28 * audio.bass).min(0.65);
-        let ax = a_mag * (phase * 0.6).cos();
-        let ay = a_mag * (phase * 0.6).sin();
+        let a_mag = (0.20 + 0.24 * audio.bass).min(0.58);
+        let ax = a_mag * (phase * 0.55).cos();
+        let ay = a_mag * (phase * 0.55).sin();
 
-        let num_x = x * 0.75 - ax;
-        let num_y = y * 0.75 - ay;
-        let den_x = 1.0 - (ax * x * 0.75 + ay * y * 0.75);
-        let den_y = -(ax * y * 0.75 - ay * x * 0.75);
-        let den_norm2 = (den_x * den_x + den_y * den_y).max(0.001);
+        let num_x = x * 0.78 - ax;
+        let num_y = y * 0.78 - ay;
+        let den_x = 1.0 - (ax * x * 0.78 + ay * y * 0.78);
+        let den_y = -(ax * y * 0.78 - ay * x * 0.78);
+        let den_norm2 = (den_x * den_x + den_y * den_y).max(0.01);
 
         let wx = (num_x * den_x + num_y * den_y) / den_norm2;
         let wy = (num_y * den_x - num_x * den_y) / den_norm2;
         let w_ang = Self::fold_dihedral(wy.atan2(wx), self.symmetry_folds);
 
-        let band_u = (hyp_dist * 0.18 + norm_angle * 0.25).fract();
+        let band_u = (hyp_dist * 0.16 + norm_angle * 0.25).fract();
         let spec = Self::sample_spectrum(&audio.bands, band_u);
 
-        // Smooth anti-aliased hyperbolic geodesic arcs
-        let geo_wave =
-            (hyp_dist * (2.6 + 1.4 * audio.low_mid) - phase * 1.4 + spec * 1.8).sin()
-                * (w_ang * (self.symmetry_folds as f32) + hyp_dist * 1.5).cos();
+        let geo_wave = (hyp_dist * (2.2 + 1.1 * audio.low_mid) - phase * 1.3 + spec * 1.2).sin()
+            * (w_ang * (self.symmetry_folds as f32) + hyp_dist * 1.2).cos();
         let d_geo = geo_wave.abs();
 
-        let arc_glow = (-d_geo * d_geo / 0.018).exp() * (0.55 + 0.75 * spec);
-        let ring_d = (r - (0.96 + 0.08 * audio.sub_bass)).abs();
-        let boundary_ring = (-ring_d * ring_d / 0.0012).exp() * (0.7 + 0.6 * audio.bass);
+        // Wide, smooth hyperbolic silk cushions
+        let arc_glow = (-d_geo * d_geo / 0.085).exp() * (0.55 + 0.65 * spec);
+        let ring_d = (r - (0.88 + 0.06 * audio.sub_bass)).abs();
+        let boundary_ring = (-ring_d * ring_d / 0.0085).exp() * (0.65 + 0.55 * audio.bass);
 
-        let intensity = arc_glow * Self::smoothstep(1.18, 0.4, r) + boundary_ring;
-        let core_glow = (-d_geo * d_geo / 0.0025).exp() * spec + boundary_ring * 0.6;
-        let color_phase = hyp_dist * 0.15 + folded_theta * 0.35 - phase * 0.07;
+        let vignette = Self::smoothstep(1.12, 0.55, r);
+        let intensity = arc_glow * vignette + boundary_ring;
+        let core_glow = (-d_geo * d_geo / 0.014).exp() * spec * 0.65 + boundary_ring * 0.55;
+        let color_phase = hyp_dist * 0.16 + folded_theta * 0.35 - phase * 0.07;
 
         (intensity, color_phase, core_glow)
     }
@@ -452,19 +465,19 @@ impl PhysicsField {
         let n = self.cymatic_n;
         let spec = Self::sample_spectrum(&audio.bands, (r * 0.5 + norm_angle * 0.5).clamp(0.0, 1.0));
 
-        let wave1 = (m * PI * sym_x * 0.85).cos() * (n * PI * sym_y * 0.85).cos();
-        let wave2 = (n * PI * sym_x * 0.85).cos() * (m * PI * sym_y * 0.85).cos();
-        let helmholtz = (wave1 - wave2 + 0.28 * spec * (r * 7.0 - phase * 1.5).sin()).abs();
+        let wave1 = (m * PI * sym_x * 0.78).cos() * (n * PI * sym_y * 0.78).cos();
+        let wave2 = (n * PI * sym_x * 0.78).cos() * (m * PI * sym_y * 0.78).cos();
+        let helmholtz = (wave1 - wave2 + 0.22 * spec * (r * 5.0 - phase * 1.4).sin()).abs();
 
-        // Ultra-clean Gaussian nodal contours instead of noisy reciprocal spikes
-        let line_width = 0.065 + 0.045 * audio.rms_energy;
-        let nodal_ribbon = (-helmholtz * helmholtz / (line_width * line_width)).exp()
-            * (0.65 + 0.65 * spec);
+        let line_width = 0.14 + 0.06 * audio.rms_energy;
+        let nodal_ribbon =
+            (-helmholtz * helmholtz / (line_width * line_width)).exp() * (0.68 + 0.58 * spec);
 
-        let vignette = Self::smoothstep(1.32, 0.25, r);
+        let vignette = Self::smoothstep(1.15, 0.30, r);
         let intensity = nodal_ribbon * vignette;
-        let core_glow = (-helmholtz * helmholtz / 0.0012).exp() * (0.5 + 0.5 * audio.beat_impulse);
-        let color_phase = r * 0.35 + norm_angle * 0.4 - phase * 0.06 + helmholtz * 0.25;
+        let core_glow =
+            (-helmholtz * helmholtz / 0.008).exp() * (0.55 + 0.45 * audio.beat_impulse) * vignette;
+        let color_phase = r * 0.38 + norm_angle * 0.35 - phase * 0.06 + helmholtz * 0.22;
 
         (intensity, color_phase, core_glow)
     }
@@ -480,27 +493,28 @@ impl PhysicsField {
         phase: f32,
         audio: &AudioFrame,
     ) -> (f32, f32, f32) {
-        let safe_r = r.max(0.05);
+        let safe_r = r.max(0.06);
         let log_r = safe_r.ln();
-        let spec = Self::sample_spectrum(&audio.bands, norm_angle);
+        let spec = Self::sample_spectrum(&audio.bands, norm_angle * 0.75);
 
-        let spiral_phase = log_r * (3.2 + 1.8 * audio.bass)
+        let spiral_phase = log_r * (2.8 + 1.4 * audio.bass)
             + folded_theta * (self.symmetry_folds as f32)
-            - phase * 2.2
-            + spec * 1.6;
+            - phase * 2.0
+            + spec * 1.1;
         let d_spiral = spiral_phase.sin().abs();
 
-        let counter_phase = log_r * 4.5 - raw_theta * 2.0 + phase * 1.4;
-        let shimmer = (counter_phase.cos() * 0.5 + 0.5).powf(2.0);
+        let counter_phase = log_r * 3.6 - raw_theta * 2.0 + phase * 1.2;
+        let shimmer = counter_phase.cos() * 0.5 + 0.5;
 
-        let ribbon = (-d_spiral * d_spiral / 0.035).exp() * (0.5 + 0.85 * spec) * (0.5 + 0.5 * shimmer);
-        let horizon_d = (r - (0.26 + 0.14 * audio.sub_bass)).abs();
-        let horizon = (-horizon_d * horizon_d / 0.0018).exp() * (0.8 + 0.6 * audio.bass);
+        let ribbon =
+            (-d_spiral * d_spiral / 0.11).exp() * (0.55 + 0.72 * spec) * (0.55 + 0.45 * shimmer);
+        let horizon_d = (r - (0.26 + 0.12 * audio.sub_bass)).abs();
+        let horizon = (-horizon_d * horizon_d / 0.0075).exp() * (0.75 + 0.55 * audio.bass);
 
-        let vignette = Self::smoothstep(1.35, 0.2, r) * Self::smoothstep(0.04, 0.18, r);
+        let vignette = Self::smoothstep(1.18, 0.28, r) * Self::smoothstep(0.05, 0.18, r);
         let intensity = ribbon * vignette + horizon;
-        let core_glow = (-d_spiral * d_spiral / 0.004).exp() * spec + horizon * 0.7;
-        let color_phase = log_r * 0.24 - phase * 0.10 + norm_angle * 0.45;
+        let core_glow = (-d_spiral * d_spiral / 0.016).exp() * spec * 0.65 + horizon * 0.65;
+        let color_phase = log_r * 0.26 - phase * 0.10 + norm_angle * 0.42;
 
         (intensity, color_phase, core_glow)
     }
@@ -589,50 +603,45 @@ impl PhysicsField {
         phase: f32,
         audio: &AudioFrame,
     ) -> (f32, f32, f32) {
-        let band_amp = Self::sample_spectrum(&audio.bands, norm_angle);
-        let peak_amp = Self::sample_spectrum(&audio.peaks, norm_angle);
+        let band_amp = Self::sample_spectrum(&audio.bands, norm_angle * 0.65);
+        let peak_amp = Self::sample_spectrum(&audio.peaks, norm_angle * 0.65);
 
         let inner_radius = 0.22 + 0.08 * audio.sub_bass;
-        let outer_contour = inner_radius + band_amp * 0.72;
-        let peak_contour = inner_radius + peak_amp * 0.72;
-        let inner_mirror = (inner_radius - band_amp * 0.16).max(0.04);
+        let outer_contour = inner_radius + band_amp * 0.58;
+        let peak_contour = inner_radius + peak_amp * 0.64;
+        let inner_mirror = (inner_radius - band_amp * 0.14).max(0.06);
 
-        // Smooth radial bar modulation (soft silk ribs instead of hard stair-stepped blocks)
-        let rib_wave = ((folded_theta * (self.symmetry_folds as f32 * 8.0)).cos() * 0.5 + 0.5)
-            .powf(0.65);
+        let rib_wave = (folded_theta * (self.symmetry_folds as f32 * 2.0)).cos() * 0.25 + 0.75;
 
         let mut intensity = 0.0;
         let mut core_glow = 0.0;
 
-        // Smoothly anti-aliased spectrum body
-        if r >= inner_mirror && r <= outer_contour + 0.03 {
-            let edge_in = Self::smoothstep(inner_mirror - 0.015, inner_mirror + 0.015, r);
-            let edge_out = Self::smoothstep(outer_contour + 0.025, outer_contour - 0.015, r);
-            let height_t = ((r - inner_radius) / (outer_contour - inner_radius + 0.001)).clamp(0.0, 1.0);
-            intensity += edge_in * edge_out * (0.35 + 0.75 * height_t) * (0.45 + 0.55 * rib_wave);
-        }
+        // Smoothly anti-aliased spectrum body with wide feathering
+        let edge_in = Self::smoothstep(inner_mirror - 0.05, inner_mirror + 0.05, r);
+        let edge_out = Self::smoothstep(outer_contour + 0.07, outer_contour - 0.04, r);
+        let height_t =
+            ((r - inner_radius) / (outer_contour - inner_radius + 0.01)).clamp(0.0, 1.0);
+        intensity += edge_in * edge_out * (0.42 + 0.65 * height_t) * rib_wave;
 
-        // Crisp glowing neon contour along the top of the CAVA spectrum
+        // Soft glowing neon contour along the top of the CAVA spectrum
         let d_top = (r - outer_contour).abs();
-        let top_laser = (-d_top * d_top / 0.00045).exp() * (0.7 + 0.6 * band_amp);
+        let top_laser = (-d_top * d_top / 0.0085).exp() * (0.65 + 0.55 * band_amp);
         intensity += top_laser;
-        core_glow += top_laser * 0.85;
+        core_glow += (-d_top * d_top / 0.0035).exp() * 0.65;
 
         // Floating peak-gravity silk ring
         let d_peak = (r - peak_contour).abs();
-        let peak_laser = (-d_peak * d_peak / 0.0003).exp() * (0.55 + 0.5 * peak_amp);
+        let peak_laser = (-d_peak * d_peak / 0.0065).exp() * (0.45 + 0.45 * peak_amp);
         intensity += peak_laser;
-        core_glow += peak_laser * 0.6;
+        core_glow += (-d_peak * d_peak / 0.0025).exp() * 0.45;
 
-        // Smooth Lissajous waveform halo ring
-        let wave_idx = ((norm_angle * 255.0) as usize).min(255);
-        let wave_r = 0.96 + audio.waveform[wave_idx] * 0.12;
-        let d_wave = (r - wave_r).abs();
-        let wave_laser = (-d_wave * d_wave / 0.0006).exp() * 0.45 * audio.rms_energy;
-        intensity += wave_laser;
-
-        let color_phase = norm_angle * 0.65 + (r - inner_radius) * 0.4 - phase * 0.07;
-        (intensity, color_phase, core_glow.clamp(0.0, 1.0))
+        let vignette = Self::smoothstep(1.15, 0.45, r);
+        let color_phase = r * 0.52 + norm_angle * 0.35 - phase * 0.07;
+        (
+            intensity * vignette,
+            color_phase,
+            (core_glow * vignette).clamp(0.0, 1.0),
+        )
     }
 
     /// True 2-Pass Separable 5-Tap Gaussian Optical Bloom in floating-point HDR space

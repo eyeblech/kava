@@ -45,8 +45,8 @@ fn main() -> io::Result<()> {
 
     // Non-interactive preview mode for terminal verification / CI tests
     if let Some(frames) = args.preview_frames {
-        let cols = 96u16;
-        let rows = 30u16;
+        let cols = 120u16;
+        let rows = 42u16;
         let mut renderer = TerminalRenderer::new();
         renderer.show_hud = !args.no_hud;
         let (fw, fh) = renderer.field_dimensions(cols, rows);
@@ -59,20 +59,30 @@ fn main() -> io::Result<()> {
             let a_frame = audio.update(t, 1.0 / 60.0, sensitivity);
             field.render(mode, palette, &a_frame, t, 1.0 / 60.0);
             if i + 1 == frames {
-                renderer.draw_frame(
-                    &mut stdout,
-                    cols,
-                    rows,
-                    &field,
-                    &a_frame,
-                    mode,
-                    palette,
-                    60.0,
-                    sensitivity,
-                )?;
+                if let Some(ref ppm_path) = args.dump_ppm {
+                    let mut ppm = Vec::with_capacity(fw * fh * 3 + 64);
+                    let header = format!("P6\n{} {}\n255\n", fw, fh);
+                    ppm.extend_from_slice(header.as_bytes());
+                    for px in &field.rgb_buf {
+                        ppm.extend_from_slice(px);
+                    }
+                    std::fs::write(ppm_path, ppm)?;
+                } else {
+                    renderer.draw_frame(
+                        &mut stdout,
+                        cols,
+                        rows,
+                        &field,
+                        &a_frame,
+                        mode,
+                        palette,
+                        60.0,
+                        sensitivity,
+                    )?;
+                    println!();
+                }
             }
         }
-        println!();
         return Ok(());
     }
 
